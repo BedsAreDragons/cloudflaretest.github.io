@@ -2,3 +2,5 @@ Flask
 flask_cors
 discord
 requests
+Flask-SocketIO
+socket
