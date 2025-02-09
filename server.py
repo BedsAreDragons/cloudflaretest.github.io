@@ -44,4 +44,4 @@ def handle_move_flight(data):
     emit("update_flight", data, broadcast=True)
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=3200)
+    socketio.run(app, debug=True, host='0.0.0.0', port=3200, allow_unsafe_werkzeug=True)
