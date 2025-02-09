@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Strip Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=B612+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.js"></script>
+    <style>
+        body {
+            font-family: 'B612 Mono', monospace;
+            background-color: #808080;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            flex-wrap: wrap;
+        }
+        .column {
+            width: 30%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 300px;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        .flight-strip {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: grab;
+            font-weight: bold;
+            color: black;
+        }
+        .yellow { background: #FFD700; } /* Arriving */
+        .blue { background: #1E90FF; } /* Departing */
+        .red { background: #FF4500; } /* Neither or Both */
+        .form-container {
+            margin: 20px;
+            padding: 10px;
+            background: white;
+            display: inline-block;
+            border-radius: 5px;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Flight Strip Manager</h1>
+
+    <!-- Login Box -->
+    <div class="form-container" id="login-box">
+        <h3>Login</h3>
+        <label for="airportSelect">Select Airport:</label>
+        <select id="airportSelect">
+            <option value="">-- Choose an Airport --</option>
+            <option value="EGKK">EGKK</option>
+            <option value="EGHI">EGHI</option>
+            <option value="LYTV">LYTV</option>
+            <option value="LEMH">LEMH</option>
+            <option value="GCLP">GCLP</option>
+            <option value="MDST">MDST</option>
+            <option value="MDPC">MDPC</option>
+            <option value="MDAB">MDAB</option>
+            <option value="MTCA">MTCA</option>
+            <option value="EFKT">EFKT</option>
+        </select>
+        <label for="positionInput">Position:</label>
+        <select id="positionInput">
+            <option value="AIR">AIR</option>
+            <option value="GMC">GMC</option>
+            <option value="GMP">GMP</option>
+        </select>
+        <button onclick="setRole()">Login</button>
+    </div>
+
+    <!-- Flight Plan Fetcher -->
+    <div class="form-container" id="fetch-box" style="display: none;">
+        <h3>Retrieve Flight Plan</h3>
+        <input type="text" id="usernameInput" placeholder="Enter Username">
+        <button onclick="fetchFlightPlan()">Get Flight</button>
+    </div>
+
+    <!-- Dynamic Flight Strip Sections -->
+    <div class="container" id="columns-container" style="display: none;"></div>
+
+    <script>
+        var socket = io.connect("http://" + document.domain + ":" + location.port);
+        let userAirport = "";
+
+        function setRole() {
+            userAirport = document.getElementById("airportSelect").value;
+            let role = document.getElementById("positionInput").value;
+
+            if (!userAirport) {
+                alert("Please select an airport.");
+                return;
+            }
+
+            document.getElementById("login-box").style.display = "none";
+            document.getElementById("fetch-box").style.display = "block";
+            document.getElementById("columns-container").style.display = "flex";
+
+            setupColumns(role);
+        }
+
+        function setupColumns(role) {
+            let container = document.getElementById("columns-container");
+            container.innerHTML = "";
+
+            let sections = {
+                "AIR": ["Pending Arrivals", "Airborne Departures", "Arrival Sequence", "Runway", "Holding Point"],
+                "GMC": ["Ready", "Pushback", "Taxi In", "Taxi Out", "Started", "Pending Arrivals"],
+                "GMP": ["Planned Departures", "Cleared", "Ready", "Start", "Datalink"]
+            };
+
+            sections[role].forEach(section => {
+                let col = document.createElement("div");
+                col.className = "column";
+                col.id = section.toLowerCase().replace(" ", "-");
+                col.innerHTML = `<h2>${section}</h2>`;
+                col.ondrop = drop;
+                col.ondragover = allowDrop;
+                container.appendChild(col);
+            });
+        }
+
+        function allowDrop(event) {
+            event.preventDefault();
+        }
+
+        function drag(event) {
+            event.dataTransfer.setData("text", event.target.id);
+            event.target.classList.add("dragging");
+        }
+
+        function drop(event) {
+            event.preventDefault();
+            let flightId = event.dataTransfer.getData("text");
+            let flightElement = document.getElementById(flightId);
+ let newCategory = event.target.closest(".column").id;
+
+            if (flightElement) {
+                event.target.closest(".column").appendChild(flightElement);
+                flightElement.classList.remove("dragging");
+
+                socket.emit("move_flight", { id: flightId, category: newCategory });
+            }
+        }
+
+        function fetchFlightPlan() {
+            let username = document.getElementById("usernameInput").value.trim();
+            if (!username) {
+                alert("Please enter a valid username.");
+                return;
+            }
+
+            fetch(`https://1104-2a09-bac5-37d7-26a0-00-3d9-1b.ngrok-free.app/fetch/${username}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Received flight plan:", data);
+
+                    if (!data.flight_plan) {
+                        alert("Invalid response: No flight plan found.");
+                        return;
+                    }
+
+                    addFlightStrip({
+                        callsign: data.flight_plan.callsign,
+                        departure: data.flight_plan.departure,
+                        arrival: data.flight_plan.arrival,
+                        altitude: data.flight_plan.altitude,
+                        flight_rules: data.flight_plan.flight_rules,
+                        aircraft: data.flight_plan.aircraft,
+                        route: data.flight_plan.route,
+                        ssr: data.flight_plan.ssr // SSR is now directly from the API
+                    });
+                })
+                .catch(error => console.error("Error fetching flight plan:", error));
+        }
+
+        function addFlightStrip(data) {
+            console.log("Adding flight strip:", data);
+
+            let strip = document.createElement("div");
+            strip.className = "flight-strip";
+            strip.id = data.callsign;
+            strip.draggable = true;
+            strip.ondragstart = drag;
+
+            // Set color based on departure/arrival
+            if (data.arrival === userAirport && data.departure === userAirport) {
+                strip.classList.add("red"); // Both
+            } else if (data.arrival === userAirport) {
+                strip.classList.add("yellow"); // Arriving
+            } else if (data.departure === userAirport) {
+                strip.classList.add("blue"); // Departing
+            } else {
+                strip.classList.add("red"); // Neither
+            }
+
+            strip.innerHTML = `
+                <strong>${data.callsign}</strong><br>
+                SSR: ${data.ssr || "N/A"}<br>
+                DEP: ${data.departure} → ARR: ${data.arrival}<br>
+                CRZ: FL${data.altitude} | RULES: ${data.flight_rules}
+            `;
+
+            let defaultColumn = document.getElementById("pending-arrivals") || document.getElementById("planned-departures");
+            if (defaultColumn) defaultColumn.appendChild(strip);
+        }
+    </script>
+
+</body>
+</html>
